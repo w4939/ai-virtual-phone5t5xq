@@ -21,6 +21,7 @@ import type { QaCreatedContent } from "@/lib/qa-agent-tools";
 import {
   applyQaCommit,
   cancelQaCommit,
+  carryOverQaSession,
   clearQaToolHistory,
   createQaSession,
   deleteQaSession,
@@ -436,19 +437,23 @@ const QaMessageItem = memo(function QaMessageItem({
 function QaSessionDrawer({
   sessions,
   activeId,
+  carryingId,
   onSelect,
   onDelete,
   onCreate,
   onOpenSettings,
   onRenameRequest,
+  onCarryOver,
 }: {
   sessions: QaSession[];
   activeId: string | null;
+  carryingId?: string | null;
   onSelect: (id: string) => void;
   onDelete: (id: string) => void;
   onCreate: () => void;
   onOpenSettings: () => void;
   onRenameRequest: (id: string, title: string) => void;
+  onCarryOver: (id: string) => void;
 }) {
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
 
@@ -470,75 +475,95 @@ function QaSessionDrawer({
         onClick={() => { if (menuOpenId) setMenuOpenId(null); }}
       >
         {sortedSessions.length === 0 && <div className="qa-drawer-empty">还没有对话</div>}
-        {sortedSessions.map((session) => (
-          <div
-            key={session.id}
-            className={`qa-drawer-item ${session.id === activeId ? "is-active" : ""}`}
-            onClick={() => onSelect(session.id)}
-          >
-            <div className="qa-drawer-item-main">
-              <span className="qa-drawer-item-title">
-                {session.isPinned && <Pin size={12} className="qa-drawer-pin-mark" aria-label="已置顶" />}
-                {session.title}
-              </span>
-              <span className="qa-drawer-item-time">{formatRelativeTime(session.updatedAt)}</span>
-            </div>
-            <button
-              type="button"
-              className="qa-icon-btn qa-drawer-item-more"
-              aria-label="更多操作"
-              aria-expanded={menuOpenId === session.id}
-              onClick={(e) => {
-                e.stopPropagation();
-                setMenuOpenId(menuOpenId === session.id ? null : session.id);
-              }}
+        {sortedSessions.map((session) => {
+          const isCarrying = carryingId === session.id;
+          return (
+            <div
+              key={session.id}
+              className={`qa-drawer-item ${session.id === activeId ? "is-active" : ""} ${isCarrying ? "is-carrying" : ""}`}
+              onClick={() => { if (!isCarrying) onSelect(session.id); }}
             >
-              <MoreVertical size={14} />
-            </button>
-
-            {menuOpenId === session.id && (
-              <div className="qa-drawer-item-menu" role="menu">
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="qa-drawer-menu-btn"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    toggleQaSessionPin(session.id);
-                    setMenuOpenId(null);
-                  }}
-                >
-                  {session.isPinned ? <PinOff size={14} /> : <Pin size={14} />}
-                  {session.isPinned ? "取消置顶" : "置顶"}
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="qa-drawer-menu-btn"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onRenameRequest(session.id, session.title);
-                    setMenuOpenId(null);
-                  }}
-                >
-                  <Pencil size={14} /> 重命名
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="qa-drawer-menu-btn is-danger"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onDelete(session.id);
-                    setMenuOpenId(null);
-                  }}
-                >
-                  <Trash2 size={14} /> 删除
-                </button>
+              {isCarrying && <div className="qa-drawer-item-progress" />}
+              <div className="qa-drawer-item-main">
+                <span className="qa-drawer-item-title">
+                  {session.isPinned && <Pin size={12} className="qa-drawer-pin-mark" aria-label="已置顶" />}
+                  {session.title}
+                </span>
+                <span className="qa-drawer-item-time">
+                  {isCarrying ? "正在结转记忆..." : formatRelativeTime(session.updatedAt)}
+                </span>
               </div>
-            )}
-          </div>
-        ))}
+              <button
+                type="button"
+                className="qa-icon-btn qa-drawer-item-more"
+                aria-label="更多操作"
+                aria-expanded={menuOpenId === session.id}
+                disabled={isCarrying}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMenuOpenId(menuOpenId === session.id ? null : session.id);
+                }}
+              >
+                {isCarrying ? <Loader2 size={14} className="qa-spin" /> : <MoreVertical size={14} />}
+              </button>
+
+              {menuOpenId === session.id && (
+                <div className="qa-drawer-item-menu" role="menu">
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="qa-drawer-menu-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleQaSessionPin(session.id);
+                      setMenuOpenId(null);
+                    }}
+                  >
+                    {session.isPinned ? <PinOff size={14} /> : <Pin size={14} />}
+                    {session.isPinned ? "取消置顶" : "置顶"}
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="qa-drawer-menu-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRenameRequest(session.id, session.title);
+                      setMenuOpenId(null);
+                    }}
+                  >
+                    <Pencil size={14} /> 重命名
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={`qa-drawer-menu-btn ${isCarrying ? "is-carrying" : ""}`}
+                    disabled={isCarrying}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onCarryOver(session.id);
+                    }}
+                  >
+                    {isCarrying ? <Loader2 size={14} className="qa-spin" /> : <Square size={14} />}
+                    {isCarrying ? "正在结转中..." : "结转新会话"}
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="qa-drawer-menu-btn is-danger"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDelete(session.id);
+                      setMenuOpenId(null);
+                    }}
+                  >
+                    <Trash2 size={14} /> 删除
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
       <div className="qa-drawer-foot">
         <button type="button" className="qa-drawer-new qa-drawer-settings" onClick={onOpenSettings}>
